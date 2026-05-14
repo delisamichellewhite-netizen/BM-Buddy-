@@ -1,1 +1,791 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>BM Buddy</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f0f4ff; font-family: 'Nunito', system-ui, sans-serif; }
+    #root { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+    textarea, input { font-family: inherit; }
+    .sync-banner { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 480px; text-align: center; padding: 8px;
+      font-size: 12px; font-weight: 700; z-index: 100; transition: all 0.3s; }
+    .sync-ok   { background: #4caf50; color: white; }
+    .sync-err  { background: #e85a5a; color: white; }
+    .sync-busy { background: #4A90D9; color: white; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+ 
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+ 
+// ─── SUPABASE CONFIG ────────────────────────────────────────
+// ⚠️  REPLACE these two values after you create your Supabase project
+const SUPABASE_URL = "YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const FAMILY_ID = "white-family"; // shared key — same on both phones
+ 
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+ 
+// ─── CONSTANTS ──────────────────────────────────────────────
+const KIDS = [
+  { id: "alexander", name: "Alexander", age: 5, emoji: "🦁", color: "#4A90D9" },
+  { id: "baby",      name: "Archie",    age: 2, emoji: "🐻", color: "#E8845A" },
+];
+const CONSISTENCY = [
+  { id: "hard",  label: "Hard",  emoji: "🪨", desc: "Pebbles / dry" },
+  { id: "firm",  label: "Firm",  emoji: "🟤", desc: "Well-formed, easy" },
+  { id: "soft",  label: "Soft",  emoji: "💧", desc: "Soft, mushy" },
+  { id: "loose", label: "Loose", emoji: "🌊", desc: "Loose / watery" },
+];
+const LOCATION = [
+  { id: "toilet",          label: "Toilet",             emoji: "🚽" },
+  { id: "accident_home",   label: "Accident at Home",   emoji: "🏠" },
+  { id: "accident_school", label: "Accident at School", emoji: "🏫" },
+  { id: "accident_wild",   label: "Accident Out",       emoji: "🌍" },
+  { id: "diaper",          label: "Diaper",             emoji: "🍼" },
+];
+const ACCIDENT_IDS = ["accident_home","accident_school","accident_wild"];
+const SIZE = [
+  { id: "small",  label: "Small",  emoji: "🔹" },
+  { id: "medium", label: "Medium", emoji: "🔷" },
+  { id: "large",  label: "Large",  emoji: "💎" },
+];
+const SYMPTOMS = [
+  "Stomach ache","Gas","Bloating","Refused food",
+  "Cranky","Backed up feel","Straining","Blood noted",
+];
+const ENEMA_TYPES = [
+  { id: "saline",   label: "Saline Fleet" },
+  { id: "glycerin", label: "Glycerin suppository" },
+  { id: "mineral",  label: "Mineral oil" },
+  { id: "other",    label: "Other" },
+];
+const URINE_COLOR = [
+  { id: "clear",  label: "Clear",        emoji: "💧", desc: "Well hydrated" },
+  { id: "pale",   label: "Pale yellow",  emoji: "🌕", desc: "Good" },
+  { id: "yellow", label: "Dark yellow",  emoji: "🟡", desc: "Mild dehydration" },
+  { id: "amber",  label: "Amber/Orange", emoji: "🟠", desc: "Dehydrated" },
+  { id: "pink",   label: "Pink/Red",     emoji: "🔴", desc: "Blood — note!" },
+];
+const URINE_LOCATION = [
+  { id: "toilet",          label: "Toilet",             emoji: "🚽" },
+  { id: "accident_home",   label: "Accident at Home",   emoji: "🏠" },
+  { id: "accident_school", label: "Accident at School", emoji: "🏫" },
+  { id: "accident_wild",   label: "Accident Out",       emoji: "🌍" },
+  { id: "diaper",          label: "Diaper",             emoji: "🍼" },
+];
+ 
+// ─── LOCAL CACHE ─────────────────────────────────────────────
+const KEY = "bm_buddy_v4";
+function loadLocal() {
+  try {
+    const r = localStorage.getItem(KEY);
+    const d = r ? JSON.parse(r) : {};
+    return { entries: d.entries||[], enemas: d.enemas||[], contacts: d.contacts||[], urine: d.urine||[] };
+  } catch { return { entries:[], enemas:[], contacts:[], urine:[] }; }
+}
+function saveLocal(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch {} }
+ 
+// ─── HELPERS ─────────────────────────────────────────────────
+const fmt  = iso => new Date(iso).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+const fmtT = iso => new Date(iso).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+function daysSince(iso) {
+  if (!iso) return null;
+  const h = Math.floor((Date.now()-new Date(iso))/3600000);
+  if (h<1) return "< 1h ago";
+  if (h<24) return `${h}h ago`;
+  const d = Math.floor(h/24);
+  return d===1?"1 day ago":`${d} days ago`;
+}
+function dayCount(iso) {
+  if (!iso) return null;
+  return Math.floor((Date.now()-new Date(iso))/86400000);
+}
+ 
+// ─── REPORTS ─────────────────────────────────────────────────
+function buildGIReport(entries, enemas, urine, kidId) {
+  const k  = KIDS.find(k=>k.id===kidId);
+  const ke = [...entries].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+  const en = [...enemas ].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+  const ur = [...urine  ].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+  let t = `HEALTH LOG — ${k.name.toUpperCase()} (Age ${k.age}) | Celiac Disease\n`;
+  t += `Generated: ${new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}\n`;
+  t += "=".repeat(52)+"\n\n";
+  if (!ke.length) { t+="No BM entries yet.\n\n"; }
+  else {
+    t+=`BOWEL MOVEMENTS (${ke.length})\n${"-".repeat(40)}\n`;
+    ke.forEach((e,i)=>{
+      const loc=LOCATION.find(l=>l.id===e.location);
+      const con=CONSISTENCY.find(c=>c.id===e.consistency);
+      const sz =SIZE.find(s=>s.id===e.size);
+      t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
+      t+=`    Location:    ${loc?.label||"—"}\n`;
+      t+=`    Consistency: ${con?.label||"—"} (${con?.desc||""})\n`;
+      if(sz) t+=`    Size:        ${sz.label}\n`;
+      if(e.symptoms?.length) t+=`    Symptoms:    ${e.symptoms.join(", ")}\n`;
+      if(e.notes) t+=`    Notes:       ${e.notes}\n`;
+    });
+  }
+  if(ur.length){
+    t+=`\nURINE (${ur.length})\n${"-".repeat(40)}\n`;
+    ur.forEach((e,i)=>{
+      const col=URINE_COLOR.find(c=>c.id===e.color);
+      const loc=URINE_LOCATION.find(l=>l.id===e.location);
+      t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
+      t+=`    Location: ${loc?.label||"—"}\n`;
+      t+=`    Color:    ${col?.label||"—"} — ${col?.desc||""}\n`;
+      if(e.notes) t+=`    Notes:    ${e.notes}\n`;
+    });
+  }
+  if(en.length){
+    t+=`\nINTERVENTIONS (${en.length})\n${"-".repeat(40)}\n`;
+    en.forEach((e,i)=>{
+      const type=ENEMA_TYPES.find(x=>x.id===e.type);
+      t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
+      t+=`    Type:   ${type?.label||e.type}\n`;
+      t+=`    Result: ${e.result||"—"}\n`;
+      if(e.notes) t+=`    Notes:  ${e.notes}\n`;
+    });
+  }
+  const acc=ke.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+  const urAcc=ur.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+  const hard=ke.filter(e=>e.consistency==="hard").length;
+  t+=`\nSUMMARY\n${"-".repeat(40)}\n`;
+  t+=`Total BMs: ${ke.length}  |  BM Accidents: ${acc}  |  Hard/constipated: ${hard}\n`;
+  t+=`Total Urine: ${ur.length}  |  Urine Accidents: ${urAcc}  |  Interventions: ${en.length}\n`;
+  return t;
+}
+ 
+function buildSchoolMsg(entries, enemas, period, contact) {
+  const now=new Date(), cutoff=new Date(now);
+  if(period==="today") cutoff.setHours(0,0,0,0);
+  else if(period==="3days") cutoff.setDate(now.getDate()-3);
+  else cutoff.setDate(now.getDate()-7);
+  const ke=entries.filter(e=>e.kidId==="alexander"&&new Date(e.timestamp)>=cutoff);
+  const en=enemas.filter(e=>e.kidId==="alexander"&&new Date(e.timestamp)>=cutoff);
+  const acc=ke.filter(e=>ACCIDENT_IDS.includes(e.location));
+  const allKe=entries.filter(e=>e.kidId==="alexander").sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  const lb=allKe[0];
+  const pLabel=period==="today"?"today":period==="3days"?"over the past 3 days":"this past week";
+  const who=contact.role==="nurse"?`School Nurse ${contact.name}`:`${contact.name}`;
+  let m=`Hi ${who},\n\n`;
+  m+=`I wanted to give you a quick health update on Alexander (celiac disease) ${pLabel}.\n\n`;
+  if(!ke.length){
+    m+=`We have no bowel movement activity recorded at home ${pLabel}`;
+    m+=lb?` — his last recorded movement was ${daysSince(lb.timestamp)}.`:".";
+    m+=" This may mean he is experiencing constipation, and we are monitoring closely.\n\n";
+  } else {
+    m+=`Alexander had ${ke.length} bowel movement${ke.length>1?"s":""} at home ${pLabel}. `;
+    if(lb) m+=`His most recent was ${daysSince(lb.timestamp)}. `;
+    if(acc.length){
+      const atSchool=acc.filter(e=>e.location==="accident_school").length;
+      const atHome=acc.filter(e=>e.location==="accident_home").length;
+      const out=acc.filter(e=>e.location==="accident_wild").length;
+      const parts=[];
+      if(atHome) parts.push(`${atHome} at home`);
+      if(atSchool) parts.push(`${atSchool} at school`);
+      if(out) parts.push(`${out} out in the community`);
+      m+=`\n\n⚠️ He had ${acc.length} accident${acc.length>1?"s":""} during this period (${parts.join(", ")}). `;
+      m+="Please allow him bathroom access without needing to ask, and keep a change of clothes available if possible.\n\n";
+    } else { m+="No accidents recorded during this period.\n\n"; }
+  }
+  if(en.length){
+    const last=en[en.length-1];
+    const ltype=ENEMA_TYPES.find(t=>t.id===last.type);
+    m+=`We used a bowel intervention (${ltype?.label||"enema"}) recently. His digestion may be adjusting — please watch for discomfort or urgency at school.\n\n`;
+  }
+  m+="As a reminder, Alexander has celiac disease and must maintain a strictly gluten-free diet. ";
+  m+="Please do not allow him to share food, utensils, or eat anything not sent from home.\n\n";
+  if(contact.role==="nurse"){
+    m+="If he reports stomach pain, urgency, or has an accident at school, please feel free to contact me directly. I can share his full health log if helpful for your records.\n\n";
+  } else {
+    m+="If you notice any discomfort, accidents, or food-related incidents, please let me know. Thank you for caring for him!\n\n";
+  }
+  m+="Warm regards,\nDeLisa White";
+  if(contact.phone) m+=`\n${contact.phone}`;
+  return m;
+}
+ 
+// ─── UI PRIMITIVES ───────────────────────────────────────────
+function Lbl({children}) {
+  return <div style={{fontWeight:800,fontSize:11,color:"#555",marginBottom:7,textTransform:"uppercase",letterSpacing:0.7}}>{children}</div>;
+}
+function Tag({color,children}) {
+  return <span style={{background:color+"18",color,border:`1px solid ${color}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,display:"inline-block",marginBottom:2}}>{children}</span>;
+}
+function Pill({active,color="#4A90D9",onClick,children,style:s={}}) {
+  return <button onClick={onClick} style={{padding:"7px 13px",borderRadius:20,border:`2px solid ${active?color:"#e0e0e0"}`,background:active?color:"white",color:active?"white":"#555",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",...s}}>{children}</button>;
+}
+function Card({children,accent,style:s={}}) {
+  return <div style={{background:"white",borderRadius:16,padding:15,marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)",border:`2px solid ${accent||"#eef0f7"}`,...s}}>{children}</div>;
+}
+function BigBtn({onClick,disabled,color="#4A90D9",children}) {
+  return <button onClick={onClick} disabled={!!disabled} style={{width:"100%",padding:13,background:disabled?"#ccc":color,color:"white",border:"none",borderRadius:13,fontWeight:800,fontSize:14,cursor:disabled?"not-allowed":"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{children}</button>;
+}
+function TxtInput({value,onChange,placeholder,style:s={},multiline}) {
+  const base={width:"100%",boxSizing:"border-box",border:"2px solid #e0e0e0",borderRadius:11,padding:"9px 12px",fontSize:13,fontFamily:"inherit",color:"#333",outline:"none",...s};
+  return multiline
+    ? <textarea value={value} onChange={onChange} placeholder={placeholder} style={{...base,resize:"vertical",minHeight:68}} />
+    : <input    value={value} onChange={onChange} placeholder={placeholder} style={base} />;
+}
+ 
+// ─── MAIN APP ────────────────────────────────────────────────
+function App() {
+  const [data, setData]     = useState(loadLocal);
+  const [syncStatus, setSyncStatus] = useState(""); // "ok"|"err"|"busy"|""
+  const [syncMsg, setSyncMsg]       = useState("");
+  const [configured, setConfigured] = useState(
+    SUPABASE_URL !== "YOUR_SUPABASE_URL"
+  );
+  const syncTimer = useRef(null);
+ 
+  const {entries, enemas, contacts, urine} = data;
+ 
+  // ── Save locally on every change ──
+  useEffect(() => { saveLocal(data); }, [data]);
+ 
+  // ── Pull from Supabase on mount ──
+  useEffect(() => {
+    if (!configured) return;
+    pullFromSupabase();
+    // Real-time subscription
+    const channel = sb.channel("bm-buddy-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bm_buddy_data", filter: `family_id=eq.${FAMILY_ID}` },
+        () => { pullFromSupabase(); })
+      .subscribe();
+    return () => sb.removeChannel(channel);
+  }, [configured]);
+ 
+  async function pullFromSupabase() {
+    try {
+      const { data: rows, error } = await sb
+        .from("bm_buddy_data")
+        .select("payload")
+        .eq("family_id", FAMILY_ID)
+        .single();
+      if (error && error.code !== "PGRST116") throw error;
+      if (rows?.payload) {
+        const remote = rows.payload;
+        setData(remote);
+        saveLocal(remote);
+      }
+    } catch(e) {
+      console.warn("Pull failed", e);
+    }
+  }
+ 
+  async function pushToSupabase(newData) {
+    if (!configured) return;
+    showSync("busy", "Syncing…");
+    try {
+      const { error } = await sb
+        .from("bm_buddy_data")
+        .upsert({ family_id: FAMILY_ID, payload: newData, updated_at: new Date().toISOString() },
+          { onConflict: "family_id" });
+      if (error) throw error;
+      showSync("ok", "Synced ✓");
+    } catch(e) {
+      showSync("err", "Sync failed — saved locally");
+      console.warn("Push failed", e);
+    }
+  }
+ 
+  function showSync(status, msg) {
+    setSyncStatus(status); setSyncMsg(msg);
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => setSyncStatus(""), 3000);
+  }
+ 
+  function patch(p) {
+    const next = { ...data, ...p };
+    setData(next);
+    pushToSupabase(next);
+  }
+ 
+  const [view,      setView]      = useState("today");
+  const [saved,     setSaved]     = useState(false);
+  const [copied,    setCopied]    = useState("");
+  const [addMode,   setAddMode]   = useState("bm");
+  const [schoolTab, setSchoolTab] = useState("contacts");
+  const [exportKid, setExportKid] = useState("alexander");
+  const [msgTarget, setMsgTarget] = useState(null);
+  const [msgPeriod, setMsgPeriod] = useState("today");
+  const [genMsg,    setGenMsg]    = useState("");
+ 
+  const blankBM    = {kidId:"alexander",consistency:"",location:"",size:"",symptoms:[],notes:"",timestamp:new Date().toISOString()};
+  const blankEnema = {kidId:"alexander",type:"",result:"",notes:"",timestamp:new Date().toISOString()};
+  const blankUrine = {kidId:"alexander",color:"",location:"",notes:"",timestamp:new Date().toISOString()};
+ 
+  const [form,  setForm]  = useState(blankBM);
+  const [eForm, setEForm] = useState(blankEnema);
+  const [uForm, setUForm] = useState(blankUrine);
+  const [cForm, setCForm] = useState({name:"",role:"teacher",email:"",phone:""});
+ 
+  function flash() {
+    setSaved(true);
+    setTimeout(()=>{ setSaved(false); setView("today"); setForm({...blankBM,timestamp:new Date().toISOString()}); setEForm({...blankEnema,timestamp:new Date().toISOString()}); setUForm({...blankUrine,timestamp:new Date().toISOString()}); }, 1300);
+  }
+ 
+  const todayStr  = new Date().toDateString();
+  const todayAll  = entries.filter(e=>new Date(e.timestamp).toDateString()===todayStr);
+  function lastBM(kidId) { return entries.filter(e=>e.kidId===kidId).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0]; }
+ 
+  function doCopy(text,key) {
+    navigator.clipboard?.writeText(text).catch(()=>{});
+    setCopied(key); setTimeout(()=>setCopied(""),2200);
+  }
+ 
+  const allHistory = [
+    ...entries.map(e=>({...e,_t:"bm"})),
+    ...enemas.map(e=>({...e,_t:"enema"})),
+    ...urine.map(e=>({...e,_t:"urine"})),
+  ].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+ 
+  return (
+    <div style={{fontFamily:"'Nunito',system-ui,sans-serif",background:"linear-gradient(135deg,#f0f4ff 0%,#fef9f0 100%)",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:80}}>
+ 
+      {/* Sync banner */}
+      {syncStatus && (
+        <div className={`sync-banner sync-${syncStatus}`}>{syncMsg}</div>
+      )}
+ 
+      {/* Supabase not configured warning */}
+      {!configured && (
+        <div style={{background:"#fff3cd",borderBottom:"2px solid #ffc107",padding:"10px 16px",fontSize:12,color:"#856404",fontWeight:700}}>
+          ⚠️ Supabase not configured — data saves locally only. See README to enable sync.
+        </div>
+      )}
+ 
+      {/* Header */}
+      <div style={{background:"white",borderBottom:"2px solid #eef0f7",padding:"15px 18px 11px",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:26}}>🚽</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,fontSize:17,color:"#1a1a2e",letterSpacing:-0.5}}>BM Buddy</div>
+            <div style={{fontSize:11,color:"#888",fontWeight:600}}>Celiac tracker · {todayAll.length} logged today</div>
+          </div>
+          {configured && <span style={{fontSize:11,color:"#4caf50",fontWeight:700}}>☁️ Synced</span>}
+        </div>
+      </div>
+ 
+      {/* Nav */}
+      <div style={{display:"flex",background:"white",borderBottom:"2px solid #eef0f7",position:"sticky",top:63,zIndex:9}}>
+        {[
+          {id:"today",  label:"📋 Today"},
+          {id:"add",    label:"➕ Log"},
+          {id:"history",label:"📅 History"},
+          {id:"school", label:"🏫 School"},
+          {id:"export", label:"📤 Export"},
+        ].map(tab=>(
+          <button key={tab.id} onClick={()=>setView(tab.id)} style={{flex:1,padding:"10px 2px",background:view===tab.id?"#4A90D9":"transparent",color:view===tab.id?"white":"#666",border:"none",fontWeight:700,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{tab.label}</button>
+        ))}
+      </div>
+ 
+      <div style={{padding:"16px 13px"}}>
+ 
+        {/* ══ TODAY ══ */}
+        {view==="today" && (
+          <>
+            <div style={{fontWeight:800,fontSize:15,color:"#1a1a2e",marginBottom:13}}>
+              {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
+            </div>
+            {KIDS.map(k=>{
+              const todayKid    = todayAll.filter(e=>e.kidId===k.id);
+              const accidents   = todayKid.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+              const lb          = lastBM(k.id);
+              const dc          = dayCount(lb?.timestamp);
+              const uc          = dc===null?"#aaa":dc>=2?"#e85a5a":dc===1?"#E8845A":"#4caf50";
+              const todayEn     = enemas.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
+              const todayUrine  = urine.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
+              const urineAcc    = todayUrine.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+              const totalAcc    = accidents + urineAcc;
+              return (
+                <Card key={k.id} accent={k.color+"33"}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                    <span style={{fontSize:26}}>{k.emoji}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:800,fontSize:14,color:"#1a1a2e"}}>{k.name}</div>
+                      <div style={{fontSize:12,color:"#888"}}>
+                        Age {k.age} · {todayKid.length} BM{todayKid.length!==1?"s":""} · {todayUrine.length} urine today
+                        {totalAcc>0&&<span style={{color:"#e85a5a",fontWeight:700}}> · {totalAcc} accident{totalAcc>1?"s":""}</span>}
+                      </div>
+                    </div>
+                    <div style={{background:uc+"18",border:`1.5px solid ${uc}`,borderRadius:10,padding:"4px 8px",textAlign:"center",minWidth:68}}>
+                      <div style={{fontSize:9,fontWeight:800,color:uc,textTransform:"uppercase",letterSpacing:0.3}}>Last BM</div>
+                      <div style={{fontSize:11,fontWeight:800,color:uc}}>{daysSince(lb?.timestamp)||"None"}</div>
+                    </div>
+                  </div>
+                  {todayKid.length===0&&todayEn.length===0&&todayUrine.length===0
+                    ? <div style={{color:"#bbb",fontSize:13,fontStyle:"italic"}}>Nothing logged today</div>
+                    : <>
+                        {todayKid.map(e=>{
+                          const loc=LOCATION.find(l=>l.id===e.location);
+                          const con=CONSISTENCY.find(c=>c.id===e.consistency);
+                          const sz=SIZE.find(s=>s.id===e.size);
+                          return (
+                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                              <span>{loc?.emoji}</span>
+                              <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#333"}}>{loc?.label}</span>
+                              <span style={{color:"#ccc"}}>·</span><span>{con?.label}</span>
+                              {sz&&<><span style={{color:"#ccc"}}>·</span><span>{sz.label}</span></>}
+                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                            </div>
+                          );
+                        })}
+                        {todayUrine.map(e=>{
+                          const col=URINE_COLOR.find(c=>c.id===e.color);
+                          const loc=URINE_LOCATION.find(l=>l.id===e.location);
+                          return (
+                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                              <span>💦</span>
+                              <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#2196F3"}}>Urine{loc&&loc.id!=="toilet"?` · ${loc.label}`:""}</span>
+                              {col&&<><span style={{color:"#ccc"}}>·</span><span>{col.emoji} {col.label}</span></>}
+                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                            </div>
+                          );
+                        })}
+                        {todayEn.map(e=>{
+                          const type=ENEMA_TYPES.find(t=>t.id===e.type);
+                          return (
+                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                              <span>💊</span>
+                              <span style={{fontWeight:700,color:"#6C63FF"}}>{type?.label||e.type}</span>
+                              {e.result&&<><span style={{color:"#ccc"}}>→</span><span style={{color:"#555"}}>{e.result}</span></>}
+                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                            </div>
+                          );
+                        })}
+                      </>
+                  }
+                </Card>
+              );
+            })}
+          </>
+        )}
+ 
+        {/* ══ ADD ══ */}
+        {view==="add" && (
+          <>
+            <div style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+              <Pill active={addMode==="bm"}    onClick={()=>setAddMode("bm")}>🚽 BM</Pill>
+              <Pill active={addMode==="urine"} color="#2196F3" onClick={()=>setAddMode("urine")}>💦 Urine</Pill>
+              <Pill active={addMode==="enema"} color="#6C63FF" onClick={()=>setAddMode("enema")}>💊 Intervention</Pill>
+            </div>
+ 
+            {/* Which kid */}
+            <div style={{marginBottom:16}}>
+              <Lbl>Which child?</Lbl>
+              <div style={{display:"flex",gap:10}}>
+                {KIDS.map(k=>{
+                  const cur = addMode==="bm"?form.kidId:addMode==="urine"?uForm.kidId:eForm.kidId;
+                  const set = addMode==="bm"?(v=>setForm(f=>({...f,kidId:v}))):addMode==="urine"?(v=>setUForm(f=>({...f,kidId:v}))):(v=>setEForm(f=>({...f,kidId:v})));
+                  return (
+                    <button key={k.id} onClick={()=>set(k.id)} style={{flex:1,padding:"11px 8px",background:cur===k.id?k.color:"white",color:cur===k.id?"white":"#444",border:`2px solid ${cur===k.id?k.color:"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{k.emoji} {k.name}</button>
+                  );
+                })}
+              </div>
+            </div>
+ 
+            {/* BM FORM */}
+            {addMode==="bm" && (
+              <>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Where? *</Lbl>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {LOCATION.map(l=>{
+                      const isAcc=ACCIDENT_IDS.includes(l.id);
+                      const ac=isAcc?"#e85a5a":"#4A90D9";
+                      return <button key={l.id} onClick={()=>setForm(f=>({...f,location:l.id}))} style={{flex:"1 1 calc(33% - 8px)",padding:"10px 4px",textAlign:"center",background:form.location===l.id?ac:"white",color:form.location===l.id?"white":"#444",border:`2px solid ${form.location===l.id?ac:"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}><div style={{fontSize:18}}>{l.emoji}</div>{l.label}</button>;
+                    })}
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Consistency? *</Lbl>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {CONSISTENCY.map(c=>(
+                      <button key={c.id} onClick={()=>setForm(f=>({...f,consistency:c.id}))} style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8,background:form.consistency===c.id?"#4A90D9":"white",color:form.consistency===c.id?"white":"#444",border:`2px solid ${form.consistency===c.id?"#4A90D9":"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+                        <span>{c.emoji}</span><div><div>{c.label}</div><div style={{fontSize:10,fontWeight:400,opacity:0.8}}>{c.desc}</div></div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Size / Amount</Lbl>
+                  <div style={{display:"flex",gap:8}}>
+                    {SIZE.map(s=>(
+                      <button key={s.id} onClick={()=>setForm(f=>({...f,size:f.size===s.id?"":s.id}))} style={{flex:1,padding:"10px 4px",textAlign:"center",background:form.size===s.id?"#6C63FF":"white",color:form.size===s.id?"white":"#444",border:`2px solid ${form.size===s.id?"#6C63FF":"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}><div style={{fontSize:18}}>{s.emoji}</div>{s.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Symptoms?</Lbl>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                    {SYMPTOMS.map(s=>(
+                      <button key={s} onClick={()=>setForm(f=>({...f,symptoms:f.symptoms.includes(s)?f.symptoms.filter(x=>x!==s):[...f.symptoms,s]}))} style={{padding:"6px 12px",background:form.symptoms.includes(s)?"#E8845A":"white",color:form.symptoms.includes(s)?"white":"#555",border:`2px solid ${form.symptoms.includes(s)?"#E8845A":"#e0e0e0"}`,borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{s}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:18}}>
+                  <Lbl>Notes</Lbl>
+                  <TxtInput multiline value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. seemed backed up, mentioned stomach hurt…" />
+                </div>
+                <BigBtn onClick={()=>{ if(!form.consistency||!form.location) return; patch({entries:[{...form,id:Date.now()},...entries]}); flash(); }} disabled={!form.consistency||!form.location}>
+                  {saved?"✅ Saved!":"Save Bowel Movement"}
+                </BigBtn>
+              </>
+            )}
+ 
+            {/* URINE FORM */}
+            {addMode==="urine" && (
+              <>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Where? *</Lbl>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {URINE_LOCATION.map(l=>{
+                      const isAcc=ACCIDENT_IDS.includes(l.id);
+                      const ac=isAcc?"#e85a5a":"#2196F3";
+                      return <button key={l.id} onClick={()=>setUForm(f=>({...f,location:l.id}))} style={{flex:"1 1 calc(33% - 8px)",padding:"10px 4px",textAlign:"center",background:uForm.location===l.id?ac:"white",color:uForm.location===l.id?"white":"#444",border:`2px solid ${uForm.location===l.id?ac:"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}><div style={{fontSize:18}}>{l.emoji}</div>{l.label}</button>;
+                    })}
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Color / Hydration *</Lbl>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {URINE_COLOR.map(c=>(
+                      <button key={c.id} onClick={()=>setUForm(f=>({...f,color:c.id}))} style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8,background:uForm.color===c.id?"#2196F3":"white",color:uForm.color===c.id?"white":"#444",border:`2px solid ${uForm.color===c.id?"#2196F3":"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+                        <span style={{fontSize:18}}>{c.emoji}</span><div><div>{c.label}</div><div style={{fontSize:10,fontWeight:400,opacity:0.8}}>{c.desc}</div></div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:18}}>
+                  <Lbl>Notes</Lbl>
+                  <TxtInput multiline value={uForm.notes} onChange={e=>setUForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. complained of burning, strong odor, small amount…" />
+                </div>
+                <BigBtn color="#2196F3" onClick={()=>{ if(!uForm.color||!uForm.location) return; patch({urine:[{...uForm,id:Date.now()},...urine]}); flash(); }} disabled={!uForm.color||!uForm.location}>
+                  {saved?"✅ Saved!":"Save Urine Log"}
+                </BigBtn>
+              </>
+            )}
+ 
+            {/* ENEMA FORM */}
+            {addMode==="enema" && (
+              <>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Intervention type *</Lbl>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {ENEMA_TYPES.map(t=>(
+                      <button key={t.id} onClick={()=>setEForm(f=>({...f,type:t.id}))} style={{padding:"11px 10px",background:eForm.type===t.id?"#6C63FF":"white",color:eForm.type===t.id?"white":"#444",border:`2px solid ${eForm.type===t.id?"#6C63FF":"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{t.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <Lbl>Result</Lbl>
+                  <TxtInput value={eForm.result} onChange={e=>setEForm(f=>({...f,result:e.target.value}))} placeholder="e.g. large soft movement within 20 min" />
+                </div>
+                <div style={{marginBottom:18}}>
+                  <Lbl>Notes</Lbl>
+                  <TxtInput multiline value={eForm.notes} onChange={e=>setEForm(f=>({...f,notes:e.target.value}))} placeholder="Timing, comfort level, concerns…" />
+                </div>
+                <BigBtn color="#6C63FF" onClick={()=>{ if(!eForm.type) return; patch({enemas:[{...eForm,id:Date.now()},...enemas]}); flash(); }} disabled={!eForm.type}>
+                  {saved?"✅ Saved!":"Save Intervention"}
+                </BigBtn>
+              </>
+            )}
+          </>
+        )}
+ 
+        {/* ══ HISTORY ══ */}
+        {view==="history" && (
+          <>
+            {allHistory.length===0
+              ? <div style={{textAlign:"center",color:"#aaa",padding:40,fontSize:14}}>No entries yet. Start logging! 📝</div>
+              : allHistory.map(e=>{
+                  const k=KIDS.find(k=>k.id===e.kidId);
+                  if(e._t==="urine"){
+                    const col=URINE_COLOR.find(c=>c.id===e.color);
+                    const loc=URINE_LOCATION.find(l=>l.id===e.location);
+                    const isAcc=ACCIDENT_IDS.includes(e.location);
+                    return (
+                      <div key={e.id} style={{background:"white",borderRadius:14,padding:13,marginBottom:9,boxShadow:"0 2px 8px rgba(0,0,0,0.05)",borderLeft:`4px solid ${isAcc?"#e85a5a":"#2196F3"}`}}>
+                        <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+                          <span style={{fontSize:18,marginRight:7}}>{k?.emoji}</span>
+                          <div style={{flex:1}}><span style={{fontWeight:800,fontSize:13}}>{k?.name}</span><span style={{color:"#aaa",fontSize:11,marginLeft:8}}>{fmt(e.timestamp)} · {fmtT(e.timestamp)}</span></div>
+                          <button onClick={()=>patch({urine:urine.filter(x=>x.id!==e.id)})} style={{background:"none",border:"none",cursor:"pointer",color:"#ddd",fontSize:14}}>🗑</button>
+                        </div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                          <Tag color={isAcc?"#e85a5a":"#2196F3"}>💦 Urine · {loc?.label}</Tag>
+                          {col&&<Tag color={e.color==="pink"?"#e85a5a":"#64B5F6"}>{col.emoji} {col.label}</Tag>}
+                        </div>
+                        {e.notes&&<div style={{marginTop:6,fontSize:12,color:"#888",fontStyle:"italic"}}>"{e.notes}"</div>}
+                      </div>
+                    );
+                  }
+                  if(e._t==="enema"){
+                    const type=ENEMA_TYPES.find(t=>t.id===e.type);
+                    return (
+                      <div key={e.id} style={{background:"white",borderRadius:14,padding:13,marginBottom:9,boxShadow:"0 2px 8px rgba(0,0,0,0.05)",borderLeft:"4px solid #6C63FF"}}>
+                        <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+                          <span style={{fontSize:18,marginRight:7}}>{k?.emoji}</span>
+                          <div style={{flex:1}}><span style={{fontWeight:800,fontSize:13}}>{k?.name}</span><span style={{color:"#aaa",fontSize:11,marginLeft:8}}>{fmt(e.timestamp)} · {fmtT(e.timestamp)}</span></div>
+                          <button onClick={()=>patch({enemas:enemas.filter(x=>x.id!==e.id)})} style={{background:"none",border:"none",cursor:"pointer",color:"#ddd",fontSize:14}}>🗑</button>
+                        </div>
+                        <Tag color="#6C63FF">💊 {type?.label||e.type}</Tag>
+                        {e.result&&<span style={{marginLeft:8,fontSize:12,color:"#666"}}>→ {e.result}</span>}
+                        {e.notes&&<div style={{marginTop:6,fontSize:12,color:"#888",fontStyle:"italic"}}>"{e.notes}"</div>}
+                      </div>
+                    );
+                  }
+                  const loc=LOCATION.find(l=>l.id===e.location);
+                  const con=CONSISTENCY.find(c=>c.id===e.consistency);
+                  const sz=SIZE.find(s=>s.id===e.size);
+                  return (
+                    <div key={e.id} style={{background:"white",borderRadius:14,padding:13,marginBottom:9,boxShadow:"0 2px 8px rgba(0,0,0,0.05)",borderLeft:`4px solid ${ACCIDENT_IDS.includes(e.location)?"#e85a5a":k?.color}`}}>
+                      <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+                        <span style={{fontSize:18,marginRight:7}}>{k?.emoji}</span>
+                        <div style={{flex:1}}><span style={{fontWeight:800,fontSize:13}}>{k?.name}</span><span style={{color:"#aaa",fontSize:11,marginLeft:8}}>{fmt(e.timestamp)} · {fmtT(e.timestamp)}</span></div>
+                        <button onClick={()=>patch({entries:entries.filter(x=>x.id!==e.id)})} style={{background:"none",border:"none",cursor:"pointer",color:"#ddd",fontSize:14}}>🗑</button>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                        <Tag color={ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#4A90D9"}>{loc?.emoji} {loc?.label}</Tag>
+                        {con&&<Tag color="#6C63FF">{con?.emoji} {con?.label}</Tag>}
+                        {sz&&<Tag color="#888">{sz?.emoji} {sz?.label}</Tag>}
+                        {e.symptoms?.map(s=><Tag key={s} color="#E8845A">{s}</Tag>)}
+                      </div>
+                      {e.notes&&<div style={{marginTop:6,fontSize:12,color:"#888",fontStyle:"italic"}}>"{e.notes}"</div>}
+                    </div>
+                  );
+                })
+            }
+          </>
+        )}
+ 
+        {/* ══ SCHOOL ══ */}
+        {view==="school" && (
+          <>
+            <div style={{fontWeight:800,fontSize:15,color:"#1a1a2e",marginBottom:3}}>🏫 School Communication</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:14}}>Send data-backed health updates to Alexander's team</div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <Pill active={schoolTab==="contacts"} onClick={()=>setSchoolTab("contacts")}>👥 Contacts</Pill>
+              <Pill active={schoolTab==="message"}  onClick={()=>setSchoolTab("message")}>✉️ Generate Message</Pill>
+            </div>
+ 
+            {schoolTab==="contacts" && (
+              <>
+                <Card>
+                  <Lbl>Add School Contact</Lbl>
+                  <TxtInput value={cForm.name} onChange={e=>setCForm(f=>({...f,name:e.target.value}))} placeholder="Name (e.g. Ms. Rivera)" style={{marginBottom:8}} />
+                  <div style={{display:"flex",gap:8,marginBottom:8}}>
+                    {["teacher","nurse","admin"].map(r=>(
+                      <Pill key={r} active={cForm.role===r} onClick={()=>setCForm(f=>({...f,role:r}))}>
+                        {r==="nurse"?"🩺":r==="admin"?"🏢":"👩‍🏫"} {r.charAt(0).toUpperCase()+r.slice(1)}
+                      </Pill>
+                    ))}
+                  </div>
+                  <TxtInput value={cForm.email} onChange={e=>setCForm(f=>({...f,email:e.target.value}))} placeholder="Email address" style={{marginBottom:8}} />
+                  <TxtInput value={cForm.phone} onChange={e=>setCForm(f=>({...f,phone:e.target.value}))} placeholder="Phone (optional)" style={{marginBottom:12}} />
+                  <BigBtn onClick={()=>{ if(!cForm.name) return; patch({contacts:[...contacts,{...cForm,id:Date.now()}]}); setCForm({name:"",role:"teacher",email:"",phone:""}); }} disabled={!cForm.name}>+ Add Contact</BigBtn>
+                </Card>
+                {contacts.length===0
+                  ? <div style={{textAlign:"center",color:"#bbb",fontSize:13,padding:20}}>No contacts yet.</div>
+                  : contacts.map(c=>(
+                      <Card key={c.id}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:24}}>{c.role==="nurse"?"🩺":c.role==="admin"?"🏢":"👩‍🏫"}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:800,fontSize:14,color:"#1a1a2e"}}>{c.name}</div>
+                            <div style={{fontSize:12,color:"#888"}}>{c.role.charAt(0).toUpperCase()+c.role.slice(1)}{c.email?` · ${c.email}`:""}</div>
+                          </div>
+                          <button onClick={()=>patch({contacts:contacts.filter(x=>x.id!==c.id)})} style={{background:"none",border:"none",cursor:"pointer",color:"#ddd",fontSize:16}}>🗑</button>
+                        </div>
+                        <div style={{display:"flex",gap:8,marginTop:10}}>
+                          {c.email&&<a href={`mailto:${c.email}`} style={{flex:1,display:"block",textAlign:"center",padding:"8px",background:"#4A90D910",border:"1.5px solid #4A90D966",borderRadius:10,color:"#4A90D9",fontWeight:700,fontSize:12,textDecoration:"none"}}>✉️ Email</a>}
+                          {c.phone&&<a href={`tel:${c.phone}`} style={{flex:1,display:"block",textAlign:"center",padding:"8px",background:"#4caf5010",border:"1.5px solid #4caf5066",borderRadius:10,color:"#4caf50",fontWeight:700,fontSize:12,textDecoration:"none"}}>📞 Call</a>}
+                        </div>
+                      </Card>
+                    ))
+                }
+              </>
+            )}
+ 
+            {schoolTab==="message" && (
+              contacts.length===0
+                ? <Card><div style={{textAlign:"center",color:"#aaa",fontSize:13,padding:10}}>Add contacts first.</div></Card>
+                : <>
+                    <Card>
+                      <Lbl>Send update to</Lbl>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+                        {contacts.map(c=>(
+                          <Pill key={c.id} active={msgTarget===c.id} onClick={()=>setMsgTarget(c.id)}>
+                            {c.role==="nurse"?"🩺":"👩‍🏫"} {c.name}
+                          </Pill>
+                        ))}
+                      </div>
+                      <Lbl>Time period</Lbl>
+                      <div style={{display:"flex",gap:8,marginBottom:16}}>
+                        <Pill active={msgPeriod==="today"} onClick={()=>setMsgPeriod("today")}>Today</Pill>
+                        <Pill active={msgPeriod==="3days"} onClick={()=>setMsgPeriod("3days")}>3 Days</Pill>
+                        <Pill active={msgPeriod==="week"}  onClick={()=>setMsgPeriod("week")}>This Week</Pill>
+                      </div>
+                      <BigBtn disabled={!msgTarget} onClick={()=>{ const c=contacts.find(x=>x.id===msgTarget); if(c) setGenMsg(buildSchoolMsg(entries,enemas,msgPeriod,c)); }}>Generate Message</BigBtn>
+                    </Card>
+                    {genMsg && (
+                      <Card>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                          <Lbl>Message</Lbl>
+                          <button onClick={()=>doCopy(genMsg,"msg")} style={{background:copied==="msg"?"#4caf50":"#4A90D9",color:"white",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{copied==="msg"?"✅ Copied!":"📋 Copy"}</button>
+                        </div>
+                        <pre style={{fontSize:12,color:"#333",whiteSpace:"pre-wrap",lineHeight:1.65,background:"#f8f9ff",borderRadius:10,padding:12,margin:0}}>{genMsg}</pre>
+                        {(()=>{ const c=contacts.find(x=>x.id===msgTarget); return c?.email?(<a href={`mailto:${c.email}?subject=Alexander Health Update&body=${encodeURIComponent(genMsg)}`} style={{display:"block",marginTop:10,textAlign:"center",padding:"10px",background:"#4A90D9",borderRadius:10,color:"white",fontWeight:700,fontSize:13,textDecoration:"none"}}>📧 Open in Email App</a>):null; })()}
+                      </Card>
+                    )}
+                  </>
+            )}
+          </>
+        )}
+ 
+        {/* ══ EXPORT ══ */}
+        {view==="export" && (
+          <>
+            <div style={{fontWeight:800,fontSize:15,color:"#1a1a2e",marginBottom:3}}>📤 GI Doctor Report</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:14}}>Full clinical log — copy to email or patient portal</div>
+            <Card>
+              <Lbl>Child</Lbl>
+              <div style={{display:"flex",gap:8,marginBottom:16}}>
+                {KIDS.map(k=>(
+                  <button key={k.id} onClick={()=>setExportKid(k.id)} style={{flex:1,padding:"11px 8px",background:exportKid===k.id?k.color:"white",color:exportKid===k.id?"white":"#444",border:`2px solid ${exportKid===k.id?k.color:"#e0e0e0"}`,borderRadius:12,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{k.emoji} {k.name}</button>
+                ))}
+              </div>
+              <BigBtn color={copied==="gi"?"#4caf50":"#4A90D9"} onClick={()=>doCopy(buildGIReport(entries,enemas,urine,exportKid),"gi")}>
+                {copied==="gi"?"✅ Copied!":"📋 Copy Full GI Report"}
+              </BigBtn>
+              <div style={{fontSize:11,color:"#aaa",textAlign:"center",marginTop:8}}>Paste into email, patient portal, or bring to appointment</div>
+            </Card>
+            <Card>
+              <Lbl>Report Preview</Lbl>
+              <pre style={{fontSize:11,color:"#444",whiteSpace:"pre-wrap",lineHeight:1.5,background:"#f8f9ff",borderRadius:10,padding:12,margin:0,maxHeight:300,overflowY:"auto"}}>
+                {buildGIReport(entries,enemas,urine,exportKid)}
+              </pre>
+            </Card>
+          </>
+        )}
+ 
+      </div>
+    </div>
+  );
+}
+ 
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
+ 
