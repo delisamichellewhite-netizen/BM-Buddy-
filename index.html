@@ -1,39 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>BM Buddy</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f0f4ff; font-family: 'Nunito', system-ui, sans-serif; }
-    #root { max-width: 480px; margin: 0 auto; min-height: 100vh; }
-    textarea, input { font-family: inherit; }
-    .sync-banner { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-      width: 100%; max-width: 480px; text-align: center; padding: 8px;
-      font-size: 12px; font-weight: 700; z-index: 100; transition: all 0.3s; }
-    .sync-ok   { background: #4caf50; color: white; }
-    .sync-err  { background: #e85a5a; color: white; }
-    .sync-busy { background: #4A90D9; color: white; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>BM Buddy</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f0f4ff; font-family: 'Nunito', system-ui, sans-serif; }
+#root { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+textarea, input { font-family: inherit; }
+.sync-banner { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; text-align: center; padding: 8px;
+  font-size: 12px; font-weight: 700; z-index: 100; transition: all 0.3s; }
+.sync-ok { background: #4caf50; color: white; }
+.sync-err { background: #e85a5a; color: white; }
+.sync-busy { background: #4A90D9; color: white; }
+</style>
 </head>
 <body>
 <div id="root"></div>
- 
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
  
 // ─── SUPABASE CONFIG ────────────────────────────────────────
-// ⚠️  REPLACE these two values after you create your Supabase project
+// ⚠️ REPLACE these two values after you create your Supabase project
 const SUPABASE_URL = "YOUR_SUPABASE_URL";
 const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 const FAMILY_ID = "white-family"; // shared key — same on both phones
  
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Only create the Supabase client if real credentials have been filled in.
+// Passing "YOUR_SUPABASE_URL" to createClient throws "Invalid URL" and
+// crashes the entire app before React mounts. This keeps the app running
+// in local-storage-only mode until real credentials are provided.
+const SUPABASE_CONFIGURED = SUPABASE_URL !== "YOUR_SUPABASE_URL"
+  && SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY";
+const sb = SUPABASE_CONFIGURED
+  ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
  
 // ─── CONSTANTS ──────────────────────────────────────────────
 const KIDS = [
@@ -70,11 +77,11 @@ const ENEMA_TYPES = [
   { id: "other",    label: "Other" },
 ];
 const URINE_COLOR = [
-  { id: "clear",  label: "Clear",        emoji: "💧", desc: "Well hydrated" },
-  { id: "pale",   label: "Pale yellow",  emoji: "🌕", desc: "Good" },
-  { id: "yellow", label: "Dark yellow",  emoji: "🟡", desc: "Mild dehydration" },
-  { id: "amber",  label: "Amber/Orange", emoji: "🟠", desc: "Dehydrated" },
-  { id: "pink",   label: "Pink/Red",     emoji: "🔴", desc: "Blood — note!" },
+  { id: "clear",  label: "Clear",         emoji: "💧", desc: "Well hydrated" },
+  { id: "pale",   label: "Pale yellow",   emoji: "🌕", desc: "Good" },
+  { id: "yellow", label: "Dark yellow",   emoji: "🟡", desc: "Mild dehydration" },
+  { id: "amber",  label: "Amber/Orange",  emoji: "🟠", desc: "Dehydrated" },
+  { id: "pink",   label: "Pink/Red",      emoji: "🔴", desc: "Blood — note!" },
 ];
 const URINE_LOCATION = [
   { id: "toilet",          label: "Toilet",             emoji: "🚽" },
@@ -117,9 +124,11 @@ function buildGIReport(entries, enemas, urine, kidId) {
   const ke = [...entries].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
   const en = [...enemas ].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
   const ur = [...urine  ].filter(e=>e.kidId===kidId).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+ 
   let t = `HEALTH LOG — ${k.name.toUpperCase()} (Age ${k.age}) | Celiac Disease\n`;
   t += `Generated: ${new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}\n`;
   t += "=".repeat(52)+"\n\n";
+ 
   if (!ke.length) { t+="No BM entries yet.\n\n"; }
   else {
     t+=`BOWEL MOVEMENTS (${ke.length})\n${"-".repeat(40)}\n`;
@@ -128,13 +137,14 @@ function buildGIReport(entries, enemas, urine, kidId) {
       const con=CONSISTENCY.find(c=>c.id===e.consistency);
       const sz =SIZE.find(s=>s.id===e.size);
       t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
-      t+=`    Location:    ${loc?.label||"—"}\n`;
+      t+=`    Location: ${loc?.label||"—"}\n`;
       t+=`    Consistency: ${con?.label||"—"} (${con?.desc||""})\n`;
-      if(sz) t+=`    Size:        ${sz.label}\n`;
-      if(e.symptoms?.length) t+=`    Symptoms:    ${e.symptoms.join(", ")}\n`;
-      if(e.notes) t+=`    Notes:       ${e.notes}\n`;
+      if(sz) t+=`    Size: ${sz.label}\n`;
+      if(e.symptoms?.length) t+=`    Symptoms: ${e.symptoms.join(", ")}\n`;
+      if(e.notes) t+=`    Notes: ${e.notes}\n`;
     });
   }
+ 
   if(ur.length){
     t+=`\nURINE (${ur.length})\n${"-".repeat(40)}\n`;
     ur.forEach((e,i)=>{
@@ -142,26 +152,28 @@ function buildGIReport(entries, enemas, urine, kidId) {
       const loc=URINE_LOCATION.find(l=>l.id===e.location);
       t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
       t+=`    Location: ${loc?.label||"—"}\n`;
-      t+=`    Color:    ${col?.label||"—"} — ${col?.desc||""}\n`;
-      if(e.notes) t+=`    Notes:    ${e.notes}\n`;
+      t+=`    Color: ${col?.label||"—"} — ${col?.desc||""}\n`;
+      if(e.notes) t+=`    Notes: ${e.notes}\n`;
     });
   }
+ 
   if(en.length){
     t+=`\nINTERVENTIONS (${en.length})\n${"-".repeat(40)}\n`;
     en.forEach((e,i)=>{
       const type=ENEMA_TYPES.find(x=>x.id===e.type);
       t+=`\n[${i+1}] ${fmt(e.timestamp)} at ${fmtT(e.timestamp)}\n`;
-      t+=`    Type:   ${type?.label||e.type}\n`;
+      t+=`    Type: ${type?.label||e.type}\n`;
       t+=`    Result: ${e.result||"—"}\n`;
-      if(e.notes) t+=`    Notes:  ${e.notes}\n`;
+      if(e.notes) t+=`    Notes: ${e.notes}\n`;
     });
   }
+ 
   const acc=ke.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
   const urAcc=ur.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
   const hard=ke.filter(e=>e.consistency==="hard").length;
   t+=`\nSUMMARY\n${"-".repeat(40)}\n`;
-  t+=`Total BMs: ${ke.length}  |  BM Accidents: ${acc}  |  Hard/constipated: ${hard}\n`;
-  t+=`Total Urine: ${ur.length}  |  Urine Accidents: ${urAcc}  |  Interventions: ${en.length}\n`;
+  t+=`Total BMs: ${ke.length} | BM Accidents: ${acc} | Hard/constipated: ${hard}\n`;
+  t+=`Total Urine: ${ur.length} | Urine Accidents: ${urAcc} | Interventions: ${en.length}\n`;
   return t;
 }
  
@@ -170,15 +182,19 @@ function buildSchoolMsg(entries, enemas, period, contact) {
   if(period==="today") cutoff.setHours(0,0,0,0);
   else if(period==="3days") cutoff.setDate(now.getDate()-3);
   else cutoff.setDate(now.getDate()-7);
+ 
   const ke=entries.filter(e=>e.kidId==="alexander"&&new Date(e.timestamp)>=cutoff);
   const en=enemas.filter(e=>e.kidId==="alexander"&&new Date(e.timestamp)>=cutoff);
   const acc=ke.filter(e=>ACCIDENT_IDS.includes(e.location));
   const allKe=entries.filter(e=>e.kidId==="alexander").sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
   const lb=allKe[0];
+ 
   const pLabel=period==="today"?"today":period==="3days"?"over the past 3 days":"this past week";
   const who=contact.role==="nurse"?`School Nurse ${contact.name}`:`${contact.name}`;
+ 
   let m=`Hi ${who},\n\n`;
   m+=`I wanted to give you a quick health update on Alexander (celiac disease) ${pLabel}.\n\n`;
+ 
   if(!ke.length){
     m+=`We have no bowel movement activity recorded at home ${pLabel}`;
     m+=lb?` — his last recorded movement was ${daysSince(lb.timestamp)}.`:".";
@@ -188,28 +204,32 @@ function buildSchoolMsg(entries, enemas, period, contact) {
     if(lb) m+=`His most recent was ${daysSince(lb.timestamp)}. `;
     if(acc.length){
       const atSchool=acc.filter(e=>e.location==="accident_school").length;
-      const atHome=acc.filter(e=>e.location==="accident_home").length;
-      const out=acc.filter(e=>e.location==="accident_wild").length;
+      const atHome  =acc.filter(e=>e.location==="accident_home").length;
+      const out     =acc.filter(e=>e.location==="accident_wild").length;
       const parts=[];
-      if(atHome) parts.push(`${atHome} at home`);
+      if(atHome)   parts.push(`${atHome} at home`);
       if(atSchool) parts.push(`${atSchool} at school`);
-      if(out) parts.push(`${out} out in the community`);
+      if(out)      parts.push(`${out} out in the community`);
       m+=`\n\n⚠️ He had ${acc.length} accident${acc.length>1?"s":""} during this period (${parts.join(", ")}). `;
       m+="Please allow him bathroom access without needing to ask, and keep a change of clothes available if possible.\n\n";
     } else { m+="No accidents recorded during this period.\n\n"; }
   }
+ 
   if(en.length){
     const last=en[en.length-1];
     const ltype=ENEMA_TYPES.find(t=>t.id===last.type);
     m+=`We used a bowel intervention (${ltype?.label||"enema"}) recently. His digestion may be adjusting — please watch for discomfort or urgency at school.\n\n`;
   }
+ 
   m+="As a reminder, Alexander has celiac disease and must maintain a strictly gluten-free diet. ";
   m+="Please do not allow him to share food, utensils, or eat anything not sent from home.\n\n";
+ 
   if(contact.role==="nurse"){
     m+="If he reports stomach pain, urgency, or has an accident at school, please feel free to contact me directly. I can share his full health log if helpful for your records.\n\n";
   } else {
     m+="If you notice any discomfort, accidents, or food-related incidents, please let me know. Thank you for caring for him!\n\n";
   }
+ 
   m+="Warm regards,\nDeLisa White";
   if(contact.phone) m+=`\n${contact.phone}`;
   return m;
@@ -235,17 +255,15 @@ function TxtInput({value,onChange,placeholder,style:s={},multiline}) {
   const base={width:"100%",boxSizing:"border-box",border:"2px solid #e0e0e0",borderRadius:11,padding:"9px 12px",fontSize:13,fontFamily:"inherit",color:"#333",outline:"none",...s};
   return multiline
     ? <textarea value={value} onChange={onChange} placeholder={placeholder} style={{...base,resize:"vertical",minHeight:68}} />
-    : <input    value={value} onChange={onChange} placeholder={placeholder} style={base} />;
+    : <input value={value} onChange={onChange} placeholder={placeholder} style={base} />;
 }
  
 // ─── MAIN APP ────────────────────────────────────────────────
 function App() {
-  const [data, setData]     = useState(loadLocal);
+  const [data, setData] = useState(loadLocal);
   const [syncStatus, setSyncStatus] = useState(""); // "ok"|"err"|"busy"|""
-  const [syncMsg, setSyncMsg]       = useState("");
-  const [configured, setConfigured] = useState(
-    SUPABASE_URL !== "YOUR_SUPABASE_URL"
-  );
+  const [syncMsg, setSyncMsg] = useState("");
+  const [configured, setConfigured] = useState(SUPABASE_CONFIGURED);
   const syncTimer = useRef(null);
  
   const {entries, enemas, contacts, urine} = data;
@@ -255,17 +273,20 @@ function App() {
  
   // ── Pull from Supabase on mount ──
   useEffect(() => {
-    if (!configured) return;
+    if (!configured || !sb) return;
     pullFromSupabase();
+ 
     // Real-time subscription
     const channel = sb.channel("bm-buddy-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "bm_buddy_data", filter: `family_id=eq.${FAMILY_ID}` },
         () => { pullFromSupabase(); })
       .subscribe();
+ 
     return () => sb.removeChannel(channel);
   }, [configured]);
  
   async function pullFromSupabase() {
+    if (!sb) return;
     try {
       const { data: rows, error } = await sb
         .from("bm_buddy_data")
@@ -284,13 +305,13 @@ function App() {
   }
  
   async function pushToSupabase(newData) {
-    if (!configured) return;
+    if (!configured || !sb) return;
     showSync("busy", "Syncing…");
     try {
       const { error } = await sb
         .from("bm_buddy_data")
         .upsert({ family_id: FAMILY_ID, payload: newData, updated_at: new Date().toISOString() },
-          { onConflict: "family_id" });
+                { onConflict: "family_id" });
       if (error) throw error;
       showSync("ok", "Synced ✓");
     } catch(e) {
@@ -311,21 +332,20 @@ function App() {
     pushToSupabase(next);
   }
  
-  const [view,      setView]      = useState("today");
-  const [saved,     setSaved]     = useState(false);
-  const [copied,    setCopied]    = useState("");
-  const [addMode,   setAddMode]   = useState("bm");
+  const [view, setView] = useState("today");
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState("");
+  const [addMode, setAddMode] = useState("bm");
   const [schoolTab, setSchoolTab] = useState("contacts");
   const [exportKid, setExportKid] = useState("alexander");
   const [msgTarget, setMsgTarget] = useState(null);
   const [msgPeriod, setMsgPeriod] = useState("today");
-  const [genMsg,    setGenMsg]    = useState("");
+  const [genMsg, setGenMsg] = useState("");
  
   const blankBM    = {kidId:"alexander",consistency:"",location:"",size:"",symptoms:[],notes:"",timestamp:new Date().toISOString()};
   const blankEnema = {kidId:"alexander",type:"",result:"",notes:"",timestamp:new Date().toISOString()};
   const blankUrine = {kidId:"alexander",color:"",location:"",notes:"",timestamp:new Date().toISOString()};
- 
-  const [form,  setForm]  = useState(blankBM);
+  const [form, setForm]   = useState(blankBM);
   const [eForm, setEForm] = useState(blankEnema);
   const [uForm, setUForm] = useState(blankUrine);
   const [cForm, setCForm] = useState({name:"",role:"teacher",email:"",phone:""});
@@ -335,8 +355,8 @@ function App() {
     setTimeout(()=>{ setSaved(false); setView("today"); setForm({...blankBM,timestamp:new Date().toISOString()}); setEForm({...blankEnema,timestamp:new Date().toISOString()}); setUForm({...blankUrine,timestamp:new Date().toISOString()}); }, 1300);
   }
  
-  const todayStr  = new Date().toDateString();
-  const todayAll  = entries.filter(e=>new Date(e.timestamp).toDateString()===todayStr);
+  const todayStr = new Date().toDateString();
+  const todayAll = entries.filter(e=>new Date(e.timestamp).toDateString()===todayStr);
   function lastBM(kidId) { return entries.filter(e=>e.kidId===kidId).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0]; }
  
   function doCopy(text,key) {
@@ -352,7 +372,6 @@ function App() {
  
   return (
     <div style={{fontFamily:"'Nunito',system-ui,sans-serif",background:"linear-gradient(135deg,#f0f4ff 0%,#fef9f0 100%)",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:80}}>
- 
       {/* Sync banner */}
       {syncStatus && (
         <div className={`sync-banner sync-${syncStatus}`}>{syncMsg}</div>
@@ -399,15 +418,15 @@ function App() {
               {new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
             </div>
             {KIDS.map(k=>{
-              const todayKid    = todayAll.filter(e=>e.kidId===k.id);
-              const accidents   = todayKid.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
-              const lb          = lastBM(k.id);
-              const dc          = dayCount(lb?.timestamp);
-              const uc          = dc===null?"#aaa":dc>=2?"#e85a5a":dc===1?"#E8845A":"#4caf50";
-              const todayEn     = enemas.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
-              const todayUrine  = urine.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
-              const urineAcc    = todayUrine.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
-              const totalAcc    = accidents + urineAcc;
+              const todayKid = todayAll.filter(e=>e.kidId===k.id);
+              const accidents = todayKid.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+              const lb = lastBM(k.id);
+              const dc = dayCount(lb?.timestamp);
+              const uc = dc===null?"#aaa":dc>=2?"#e85a5a":dc===1?"#E8845A":"#4caf50";
+              const todayEn = enemas.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
+              const todayUrine = urine.filter(e=>e.kidId===k.id&&new Date(e.timestamp).toDateString()===todayStr);
+              const urineAcc = todayUrine.filter(e=>ACCIDENT_IDS.includes(e.location)).length;
+              const totalAcc = accidents + urineAcc;
               return (
                 <Card key={k.id} accent={k.color+"33"}>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -427,44 +446,44 @@ function App() {
                   {todayKid.length===0&&todayEn.length===0&&todayUrine.length===0
                     ? <div style={{color:"#bbb",fontSize:13,fontStyle:"italic"}}>Nothing logged today</div>
                     : <>
-                        {todayKid.map(e=>{
-                          const loc=LOCATION.find(l=>l.id===e.location);
-                          const con=CONSISTENCY.find(c=>c.id===e.consistency);
-                          const sz=SIZE.find(s=>s.id===e.size);
-                          return (
-                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
-                              <span>{loc?.emoji}</span>
-                              <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#333"}}>{loc?.label}</span>
-                              <span style={{color:"#ccc"}}>·</span><span>{con?.label}</span>
-                              {sz&&<><span style={{color:"#ccc"}}>·</span><span>{sz.label}</span></>}
-                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
-                            </div>
-                          );
-                        })}
-                        {todayUrine.map(e=>{
-                          const col=URINE_COLOR.find(c=>c.id===e.color);
-                          const loc=URINE_LOCATION.find(l=>l.id===e.location);
-                          return (
-                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
-                              <span>💦</span>
-                              <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#2196F3"}}>Urine{loc&&loc.id!=="toilet"?` · ${loc.label}`:""}</span>
-                              {col&&<><span style={{color:"#ccc"}}>·</span><span>{col.emoji} {col.label}</span></>}
-                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
-                            </div>
-                          );
-                        })}
-                        {todayEn.map(e=>{
-                          const type=ENEMA_TYPES.find(t=>t.id===e.type);
-                          return (
-                            <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
-                              <span>💊</span>
-                              <span style={{fontWeight:700,color:"#6C63FF"}}>{type?.label||e.type}</span>
-                              {e.result&&<><span style={{color:"#ccc"}}>→</span><span style={{color:"#555"}}>{e.result}</span></>}
-                              <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
-                            </div>
-                          );
-                        })}
-                      </>
+                      {todayKid.map(e=>{
+                        const loc=LOCATION.find(l=>l.id===e.location);
+                        const con=CONSISTENCY.find(c=>c.id===e.consistency);
+                        const sz=SIZE.find(s=>s.id===e.size);
+                        return (
+                          <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                            <span>{loc?.emoji}</span>
+                            <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#333"}}>{loc?.label}</span>
+                            <span style={{color:"#ccc"}}>·</span><span>{con?.label}</span>
+                            {sz&&<><span style={{color:"#ccc"}}>·</span><span>{sz.label}</span></>}
+                            <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                          </div>
+                        );
+                      })}
+                      {todayUrine.map(e=>{
+                        const col=URINE_COLOR.find(c=>c.id===e.color);
+                        const loc=URINE_LOCATION.find(l=>l.id===e.location);
+                        return (
+                          <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                            <span>💦</span>
+                            <span style={{fontWeight:700,color:ACCIDENT_IDS.includes(e.location)?"#e85a5a":"#2196F3"}}>Urine{loc&&loc.id!=="toilet"?` · ${loc.label}`:""}</span>
+                            {col&&<><span style={{color:"#ccc"}}>·</span><span>{col.emoji} {col.label}</span></>}
+                            <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                          </div>
+                        );
+                      })}
+                      {todayEn.map(e=>{
+                        const type=ENEMA_TYPES.find(t=>t.id===e.type);
+                        return (
+                          <div key={e.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderTop:"1px solid #f0f0f0",fontSize:13}}>
+                            <span>💊</span>
+                            <span style={{fontWeight:700,color:"#6C63FF"}}>{type?.label||e.type}</span>
+                            {e.result&&<><span style={{color:"#ccc"}}>→</span><span style={{color:"#555"}}>{e.result}</span></>}
+                            <span style={{marginLeft:"auto",color:"#bbb",fontSize:11}}>{fmtT(e.timestamp)}</span>
+                          </div>
+                        );
+                      })}
+                    </>
                   }
                 </Card>
               );
@@ -508,6 +527,7 @@ function App() {
                     })}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:16}}>
                   <Lbl>Consistency? *</Lbl>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -518,6 +538,7 @@ function App() {
                     ))}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:16}}>
                   <Lbl>Size / Amount</Lbl>
                   <div style={{display:"flex",gap:8}}>
@@ -526,6 +547,7 @@ function App() {
                     ))}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:16}}>
                   <Lbl>Symptoms?</Lbl>
                   <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
@@ -534,10 +556,12 @@ function App() {
                     ))}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:18}}>
                   <Lbl>Notes</Lbl>
                   <TxtInput multiline value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. seemed backed up, mentioned stomach hurt…" />
                 </div>
+ 
                 <BigBtn onClick={()=>{ if(!form.consistency||!form.location) return; patch({entries:[{...form,id:Date.now()},...entries]}); flash(); }} disabled={!form.consistency||!form.location}>
                   {saved?"✅ Saved!":"Save Bowel Movement"}
                 </BigBtn>
@@ -557,6 +581,7 @@ function App() {
                     })}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:16}}>
                   <Lbl>Color / Hydration *</Lbl>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -567,10 +592,12 @@ function App() {
                     ))}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:18}}>
                   <Lbl>Notes</Lbl>
                   <TxtInput multiline value={uForm.notes} onChange={e=>setUForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. complained of burning, strong odor, small amount…" />
                 </div>
+ 
                 <BigBtn color="#2196F3" onClick={()=>{ if(!uForm.color||!uForm.location) return; patch({urine:[{...uForm,id:Date.now()},...urine]}); flash(); }} disabled={!uForm.color||!uForm.location}>
                   {saved?"✅ Saved!":"Save Urine Log"}
                 </BigBtn>
@@ -588,14 +615,17 @@ function App() {
                     ))}
                   </div>
                 </div>
+ 
                 <div style={{marginBottom:16}}>
                   <Lbl>Result</Lbl>
                   <TxtInput value={eForm.result} onChange={e=>setEForm(f=>({...f,result:e.target.value}))} placeholder="e.g. large soft movement within 20 min" />
                 </div>
+ 
                 <div style={{marginBottom:18}}>
                   <Lbl>Notes</Lbl>
                   <TxtInput multiline value={eForm.notes} onChange={e=>setEForm(f=>({...f,notes:e.target.value}))} placeholder="Timing, comfort level, concerns…" />
                 </div>
+ 
                 <BigBtn color="#6C63FF" onClick={()=>{ if(!eForm.type) return; patch({enemas:[{...eForm,id:Date.now()},...enemas]}); flash(); }} disabled={!eForm.type}>
                   {saved?"✅ Saved!":"Save Intervention"}
                 </BigBtn>
@@ -674,6 +704,7 @@ function App() {
           <>
             <div style={{fontWeight:800,fontSize:15,color:"#1a1a2e",marginBottom:3}}>🏫 School Communication</div>
             <div style={{fontSize:12,color:"#888",marginBottom:14}}>Send data-backed health updates to Alexander's team</div>
+ 
             <div style={{display:"flex",gap:8,marginBottom:16}}>
               <Pill active={schoolTab==="contacts"} onClick={()=>setSchoolTab("contacts")}>👥 Contacts</Pill>
               <Pill active={schoolTab==="message"}  onClick={()=>setSchoolTab("message")}>✉️ Generate Message</Pill>
@@ -695,6 +726,7 @@ function App() {
                   <TxtInput value={cForm.phone} onChange={e=>setCForm(f=>({...f,phone:e.target.value}))} placeholder="Phone (optional)" style={{marginBottom:12}} />
                   <BigBtn onClick={()=>{ if(!cForm.name) return; patch({contacts:[...contacts,{...cForm,id:Date.now()}]}); setCForm({name:"",role:"teacher",email:"",phone:""}); }} disabled={!cForm.name}>+ Add Contact</BigBtn>
                 </Card>
+ 
                 {contacts.length===0
                   ? <div style={{textAlign:"center",color:"#bbb",fontSize:13,padding:20}}>No contacts yet.</div>
                   : contacts.map(c=>(
@@ -721,34 +753,35 @@ function App() {
               contacts.length===0
                 ? <Card><div style={{textAlign:"center",color:"#aaa",fontSize:13,padding:10}}>Add contacts first.</div></Card>
                 : <>
+                  <Card>
+                    <Lbl>Send update to</Lbl>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+                      {contacts.map(c=>(
+                        <Pill key={c.id} active={msgTarget===c.id} onClick={()=>setMsgTarget(c.id)}>
+                          {c.role==="nurse"?"🩺":"👩‍🏫"} {c.name}
+                        </Pill>
+                      ))}
+                    </div>
+                    <Lbl>Time period</Lbl>
+                    <div style={{display:"flex",gap:8,marginBottom:16}}>
+                      <Pill active={msgPeriod==="today"} onClick={()=>setMsgPeriod("today")}>Today</Pill>
+                      <Pill active={msgPeriod==="3days"} onClick={()=>setMsgPeriod("3days")}>3 Days</Pill>
+                      <Pill active={msgPeriod==="week"}  onClick={()=>setMsgPeriod("week")}>This Week</Pill>
+                    </div>
+                    <BigBtn disabled={!msgTarget} onClick={()=>{ const c=contacts.find(x=>x.id===msgTarget); if(c) setGenMsg(buildSchoolMsg(entries,enemas,msgPeriod,c)); }}>Generate Message</BigBtn>
+                  </Card>
+ 
+                  {genMsg && (
                     <Card>
-                      <Lbl>Send update to</Lbl>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
-                        {contacts.map(c=>(
-                          <Pill key={c.id} active={msgTarget===c.id} onClick={()=>setMsgTarget(c.id)}>
-                            {c.role==="nurse"?"🩺":"👩‍🏫"} {c.name}
-                          </Pill>
-                        ))}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                        <Lbl>Message</Lbl>
+                        <button onClick={()=>doCopy(genMsg,"msg")} style={{background:copied==="msg"?"#4caf50":"#4A90D9",color:"white",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{copied==="msg"?"✅ Copied!":"📋 Copy"}</button>
                       </div>
-                      <Lbl>Time period</Lbl>
-                      <div style={{display:"flex",gap:8,marginBottom:16}}>
-                        <Pill active={msgPeriod==="today"} onClick={()=>setMsgPeriod("today")}>Today</Pill>
-                        <Pill active={msgPeriod==="3days"} onClick={()=>setMsgPeriod("3days")}>3 Days</Pill>
-                        <Pill active={msgPeriod==="week"}  onClick={()=>setMsgPeriod("week")}>This Week</Pill>
-                      </div>
-                      <BigBtn disabled={!msgTarget} onClick={()=>{ const c=contacts.find(x=>x.id===msgTarget); if(c) setGenMsg(buildSchoolMsg(entries,enemas,msgPeriod,c)); }}>Generate Message</BigBtn>
+                      <pre style={{fontSize:12,color:"#333",whiteSpace:"pre-wrap",lineHeight:1.65,background:"#f8f9ff",borderRadius:10,padding:12,margin:0}}>{genMsg}</pre>
+                      {(()=>{ const c=contacts.find(x=>x.id===msgTarget); return c?.email?(<a href={`mailto:${c.email}?subject=Alexander Health Update&body=${encodeURIComponent(genMsg)}`} style={{display:"block",marginTop:10,textAlign:"center",padding:"10px",background:"#4A90D9",borderRadius:10,color:"white",fontWeight:700,fontSize:13,textDecoration:"none"}}>📧 Open in Email App</a>):null; })()}
                     </Card>
-                    {genMsg && (
-                      <Card>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                          <Lbl>Message</Lbl>
-                          <button onClick={()=>doCopy(genMsg,"msg")} style={{background:copied==="msg"?"#4caf50":"#4A90D9",color:"white",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{copied==="msg"?"✅ Copied!":"📋 Copy"}</button>
-                        </div>
-                        <pre style={{fontSize:12,color:"#333",whiteSpace:"pre-wrap",lineHeight:1.65,background:"#f8f9ff",borderRadius:10,padding:12,margin:0}}>{genMsg}</pre>
-                        {(()=>{ const c=contacts.find(x=>x.id===msgTarget); return c?.email?(<a href={`mailto:${c.email}?subject=Alexander Health Update&body=${encodeURIComponent(genMsg)}`} style={{display:"block",marginTop:10,textAlign:"center",padding:"10px",background:"#4A90D9",borderRadius:10,color:"white",fontWeight:700,fontSize:13,textDecoration:"none"}}>📧 Open in Email App</a>):null; })()}
-                      </Card>
-                    )}
-                  </>
+                  )}
+                </>
             )}
           </>
         )}
@@ -758,6 +791,7 @@ function App() {
           <>
             <div style={{fontWeight:800,fontSize:15,color:"#1a1a2e",marginBottom:3}}>📤 GI Doctor Report</div>
             <div style={{fontSize:12,color:"#888",marginBottom:14}}>Full clinical log — copy to email or patient portal</div>
+ 
             <Card>
               <Lbl>Child</Lbl>
               <div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -770,10 +804,11 @@ function App() {
               </BigBtn>
               <div style={{fontSize:11,color:"#aaa",textAlign:"center",marginTop:8}}>Paste into email, patient portal, or bring to appointment</div>
             </Card>
+ 
             <Card>
               <Lbl>Report Preview</Lbl>
               <pre style={{fontSize:11,color:"#444",whiteSpace:"pre-wrap",lineHeight:1.5,background:"#f8f9ff",borderRadius:10,padding:12,margin:0,maxHeight:300,overflowY:"auto"}}>
-                {buildGIReport(entries,enemas,urine,exportKid)}
+{buildGIReport(entries,enemas,urine,exportKid)}
               </pre>
             </Card>
           </>
@@ -788,4 +823,3 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
- 
